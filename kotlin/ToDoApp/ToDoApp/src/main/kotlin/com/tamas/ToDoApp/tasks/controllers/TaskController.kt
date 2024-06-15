@@ -1,14 +1,14 @@
-package com.tamas.ToDoApp.modules.tasks.controllers
+package com.tamas.ToDoApp.tasks.controllers
 
-import com.tamas.ToDoApp.modules.tasks.dto.TaskDto
-import com.tamas.ToDoApp.modules.tasks.services.TaskService
+import com.tamas.ToDoApp.tasks.services.TaskService
+import com.tamas.ToDoApp.tasks.dto.TaskDto
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RestController
 
 
 @RestController
-class TaskController(var taskService: TaskService) {
+class TaskController(val taskService: TaskService) {
 
     @GetMapping("/tasks")
     fun getToDos():List<TaskDto> {
@@ -16,11 +16,11 @@ class TaskController(var taskService: TaskService) {
     }
 
     @GetMapping("/tasks/{id}")
-    fun getTaskById(id: Long):TaskDto {
+    fun getTaskById(id: Long): TaskDto {
         return taskService.getTaskById(id)
     }
 
-    @PostMapping("/tasks")
+    @PostMapping("/tasks/create")
     fun postTask(task: TaskDto) {
         return taskService.postTask(task)
     }

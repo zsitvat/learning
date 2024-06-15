@@ -1,31 +1,37 @@
-package com.tamas.ToDoApp.modules.tasks.dto
+package com.tamas.ToDoApp.tasks.dto
 
-import com.tamas.ToDoApp.modules.tasks.repository.TaskEntity
+import com.tamas.ToDoApp.tasks.domain.Status
+import com.tamas.ToDoApp.tasks.domain.TaskEntity
 
 data class TaskDto(
     val id: Long,
     val name: String,
-    val description: String,
+    val description: String?,
     val status: Status,
-    val deadline: Int,
+    val deadline: String?,
     val userId: Long,
-    val updatedAt: Int,
-    val createdAt: Int
-) {
+    val updatedAt: String,
+    val createdAt: String
+)
 
-    enum class Status {
-        PENDING,
-        COMPLETED
-    }
+fun TaskEntity.toDto() = TaskDto(
+    id = this.id,
+    name = this.name,
+    description = this.description,
+    status = this.status,
+    deadline = this.deadline.toString(),
+    userId = this.userId,
+    createdAt = this.createdAt.toString(),
+    updatedAt = this.updatedAt.toString()
+)
 
-    fun toEntity() = TaskEntity(
-        id = this.id,
-        name = this.name,
-        description = this.description,
-        status = this.status,
-        deadline = this.deadline,
-        userId = this.userId,
-        updatedAt = this.updatedAt,
-        createdAt = this.createdAt
-    )
-}
+fun TaskDto.toEntity() = TaskEntity(
+    id = this.id,
+    name = this.name,
+    description = this.description,
+    status = this.status,
+    deadline = this.deadline,
+    userId = this.userId,
+    createdAt = this.createdAt,
+    updatedAt = this.updatedAt
+)

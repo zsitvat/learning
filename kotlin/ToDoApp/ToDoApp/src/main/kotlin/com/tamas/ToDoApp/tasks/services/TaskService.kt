@@ -1,37 +1,43 @@
-package com.tamas.ToDoApp.modules.tasks.services
+package com.tamas.ToDoApp.tasks.services
 
-import com.tamas.ToDoApp.modules.tasks.dto.TaskDto
+import com.tamas.ToDoApp.tasks.domain.TaskEntity
+import com.tamas.ToDoApp.tasks.dto.TaskDto
+import com.tamas.ToDoApp.tasks.repository.TaskRepository
 import org.springframework.stereotype.Service
-import com.tamas.ToDoApp.modules.tasks.repository.TaskRepository
+import org.springframework.transaction.annotation.Transactional
+import com.tamas.ToDoApp.tasks.domain.Status
+import com.tamas.ToDoApp.tasks.dto.toDto
+import com.tamas.ToDoApp.tasks.dto.toEntity
 
 @Service
-class TaskService(var taskRepository: TaskRepository) {
+class TaskService(private val taskRepository: TaskRepository) {
 
     fun getTasks(): List<TaskDto> {
-        val tasks = taskRepository.findAll().toList()
-        return tasks
+        return taskRepository.findAll().map { it.toDto() }
     }
 
     fun getTaskById(id: Long): TaskDto {
-        val task = taskRepository.findById(id).get()
-        return task
+        val task = taskRepository.findById(id).orElseThrow { RuntimeException("Task not found") }
+        return task.toDto()
     }
 
-    fun postTask(task: TaskDto) {
-        db.save(task)
+    @Transactional
+    fun postTask(taskDto: TaskDto) {
+        val task = taskDto.toEntity()
+        taskRepository.save(task)
     }
 
-fun updateTask(id: Long, task: TaskDto) {
-        val taskToUpdate = taskRepository.findById(id).get()
-        taskToUpdate.name = task.name
-        taskToUpdate.description = task.description
-        taskToUpdate.status = task.status
-        taskToUpdate.deadline = task.deadline
-        taskToUpdate.userId = task.userId
-        taskToUpdate.updatedAt = task.updatedAt
-        taskToUpdate.createdAt = task.createdAt
-        db.save(taskToUpdate)
+    @Transactional
+    fun updateTask(id: Long, taskDto: TaskDto) {
+        val taskToUpdate = taskRepository.findById(id).orElseThrow { RuntimeException("Task not found") }
+        taskToUpdate.apply {
+            name = taskDto.name
+            description = taskDto.description
+            status = taskDto.status
+            deadline = taskDto.deadline
+            userId = taskDto.userId
+            updatedAt = taskDto.updatedAt
+        }
+        taskRepository.save(taskToUpdate)
     }
 }
-
-
