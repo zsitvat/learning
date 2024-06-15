@@ -1,6 +1,6 @@
 import pandas as pd
 import tkinter as tk
-from tkinter import scrolledtext
+from tkinter import scrolledtext, filedialog
 import os
 
 # Load the Excel file
@@ -11,77 +11,44 @@ def load_excel(file_path):
             raise ValueError("The selected file contains no questions.")
         if 'Statement' not in df.columns or 'True/False' not in df.columns:
             raise ValueError("The selected file does not have the required columns.")
+        # Ensure the True/False column contains strings "True" and "False" or their Hungarian equivalents
+        df['True/False'] = df['True/False'].astype(str).str.strip().str.capitalize()
+        if not df['True/False'].isin(['True', 'False', 'Igaz', 'Hamis']).all():
+            raise ValueError("The 'True/False' column must contain only 'True', 'False', 'Igaz', or 'Hamis' values.")
+        df['True/False'] = df['True/False'].replace({'Igaz': 'True', 'Hamis': 'False'})
         return df
     except Exception as e:
-        tk.messagebox.showerror("Error", str(e))
-        return None
+        return str(e)
 
-df = load_excel('quiz/True_False_Statements.xlsx')
-if df is not None:
-    df.columns = ['Statement', 'True/False']
-else:
-    df = pd.DataFrame(columns=['Statement', 'True/False'])  # Create an empty DataFrame to avoid errors
-
-class NumQuestionsDialog(tk.Toplevel):
-    def __init__(self, parent, max_questions):
-        super().__init__(parent)
-        self.parent = parent
-        self.max_questions = max_questions
-        self.value = None
-        self.geometry("400x200+780+400")
-        self.title("Number of Questions")
-
-        label = tk.Label(self, text="How many questions would you like to answer?", font=("Arial", 12))
-        label.pack(pady=10)
-
-        self.entry = tk.Entry(self, font=("Arial", 12))
-        self.entry.pack(pady=5)
-
-        button_frame = tk.Frame(self)
-        button_frame.pack(pady=10)
-
-        ok_button = tk.Button(button_frame, text="OK", font=("Arial", 12), command=self.on_ok)
-        ok_button.pack(side="left", padx=5)
-
-        cancel_button = tk.Button(button_frame, text="Cancel", font=("Arial", 12), command=self.on_cancel)
-        cancel_button.pack(side="right", padx=5)
-
-    def on_ok(self):
-        try:
-            value = int(self.entry.get())
-            if 1 <= value <= self.max_questions:
-                self.value = value
-                self.destroy()
-            else:
-                self.show_error(f"Please enter a number between 1 and {self.max_questions}.")
-        except ValueError:
-            self.show_error("Please enter a valid number.")
-
-    def on_cancel(self):
-        self.value = None
-        self.destroy()
-
-    def show_error(self, message):
-        error_dialog = CustomMessageBox(self, "Invalid input", message)
-        error_dialog.geometry("400x200+780+400")
-        self.wait_window(error_dialog)
-
-class ChooseFileDialog(tk.Toplevel):
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.parent = parent
+# Define the main application class
+class MainApp:
+    def __init__(self, root):
+        self.root = root
+        self.df = pd.DataFrame(columns=['Statement', 'True/False'])
+        self.num_questions = 0
+        self.error_message = None
         self.choice = None
-        self.geometry("400x200+780+400")
-        self.title("Choose File")
+        self.data_frame = None
 
-        label = tk.Label(self, text="Which file would you like to open?", font=("Arial", 12))
+        self.root.title("True or False Quiz")
+        self.root.geometry("700x500+650+300")
+
+        self.root.protocol("WM_DELETE_WINDOW", lambda: self.close_program(self.root))
+
+        self.show_file_dialog()
+
+    def show_file_dialog(self):
+        for widget in self.root.winfo_children():
+            widget.destroy()
+
+        label = tk.Label(self.root, text="Which file would you like to open?", font=("Arial", 12))
         label.pack(pady=10)
 
-        button_frame = tk.Frame(self)
-        button_frame.pack(pady=10)
+        self.error_label = tk.Label(self.root, text="", font=("Arial", 12), fg="red")
+        self.error_label.pack(pady=5)
 
-        original_button = tk.Button(button_frame, text="Original", font=("Arial", 12), command=lambda: self.on_choice('original'))
-        original_button.pack(side="left", padx=5)
+        button_frame = tk.Frame(self.root)
+        button_frame.pack(pady=10)
 
         incorrect_button = tk.Button(button_frame, text="Incorrect", font=("Arial", 12), command=lambda: self.on_choice('incorrect'))
         incorrect_button.pack(side="left", padx=5)
@@ -89,17 +56,67 @@ class ChooseFileDialog(tk.Toplevel):
         correct_button = tk.Button(button_frame, text="Correct", font=("Arial", 12), command=lambda: self.on_choice('correct'))
         correct_button.pack(side="left", padx=5)
 
+        search_button = tk.Button(button_frame, text="Search File", font=("Arial", 12), command=self.search_file)
+        search_button.pack(side="left", padx=5)
+
     def on_choice(self, choice):
-        self.choice = choice
-        self.destroy()
+        data_frame = load_excel(f'quiz/{choice}_questions.xlsx')
+        if isinstance(data_frame, str):
+            self.show_error(data_frame)
+        else:
+            self.choice = choice
+            self.data_frame = data_frame
+            self.show_num_questions_dialog()
+
+    def search_file(self):
+        file_path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx *.xls")])
+        if file_path:
+            data_frame = load_excel(file_path)
+            if isinstance(data_frame, str):
+                self.show_error(data_frame)
+            else:
+                self.choice = 'custom'
+                self.data_frame = data_frame
+                self.show_num_questions_dialog()
+
+    def show_error(self, message):
+        self.error_label.config(text=message)
+
+    def show_num_questions_dialog(self):
+        if self.choice:
+            data_frame = self.data_frame
+
+            if data_frame.empty:
+                CustomMessageBox(self.root, "Error", "The selected file contains no questions. Exiting.")
+                self.root.mainloop()
+                self.root.destroy()
+                return
+
+            dialog = NumQuestionsDialog(self.root, len(data_frame))
+            self.root.wait_window(dialog)
+
+            if dialog.value:
+                self.num_questions = dialog.value
+                self.df = data_frame
+                self.root.withdraw()
+                quiz_window = tk.Toplevel(self.root)
+                QuizApp(quiz_window, self.num_questions, self.df, self.root)
+            else:
+                self.close_program()
+
+    def close_program(self):
+        self.root.quit()
+        self.root.destroy()
 
 class QuizApp:
-    def __init__(self, root, num_questions, data_frame):
-        self.root = root
+    def __init__(self, window, num_questions, data_frame, main_root):
+        self.window = window
         self.df = data_frame
-        self.root.title("True or False Quiz")
-        self.root.geometry("700x500+650+300")
+        self.window.title("True or False Quiz")
+        self.window.geometry("700x500+650+300")
         self.num_questions = num_questions
+        self.main_root = main_root
+        self.window.protocol("WM_DELETE_WINDOW",lambda: self.close_program(self.window))
         self.create_widgets()
         self.reset_quiz()
 
@@ -111,19 +128,19 @@ class QuizApp:
         self.show_question()
 
     def create_widgets(self):
-        self.statement_label = tk.Label(self.root, wraplength=600, justify="center", font=("Arial", 18))
+        self.statement_label = tk.Label(self.window, wraplength=600, justify="center", font=("Arial", 18))
         self.statement_label.pack(pady=20)
 
-        self.button_frame = tk.Frame(self.root)
+        self.button_frame = tk.Frame(self.window)
         self.button_frame.pack(pady=10)
 
-        self.true_button = tk.Button(self.button_frame, text="True", font=("Arial", 12), width=12, command=lambda: self.check_answer("Igaz"))
+        self.true_button = tk.Button(self.button_frame, text="True", font=("Arial", 12), width=12, command=lambda: self.check_answer("True"))
         self.true_button.pack(side="left", padx=20)
 
-        self.false_button = tk.Button(self.button_frame, text="False", font=("Arial", 12), width=12, command=lambda: self.check_answer("Hamis"))
+        self.false_button = tk.Button(self.button_frame, text="False", font=("Arial", 12), width=12, command=lambda: self.check_answer("False"))
         self.false_button.pack(side="right", padx=20)
 
-        self.confirmation_label = tk.Label(self.root, text="", font=("Arial", 12))
+        self.confirmation_label = tk.Label(self.window, text="", font=("Arial", 12))
         self.confirmation_label.pack(pady=10)
 
     def show_question(self):
@@ -137,7 +154,7 @@ class QuizApp:
         question = self.questions.iloc[self.current_question]
         correct_answer = question['True/False']
         self.answers.append((question['Statement'], answer, correct_answer))
-        if answer == correct_answer:
+        if answer.lower() == correct_answer.lower():
             self.score += 1
             self.show_info("Correct!", "Your answer is correct!", correct=True)
         else:
@@ -150,15 +167,16 @@ class QuizApp:
             self.show_result()
 
     def show_info(self, title, message, correct):
-        info_dialog = CustomMessageBox(self.root, title, message, correct)
-        self.root.wait_window(info_dialog)
+        info_dialog = CustomMessageBox(self.window, title, message, correct)
+        self.window.wait_window(info_dialog)
 
     def show_result(self):
-        self.root.withdraw()
+        self.window.withdraw()
         percent_score = (self.score / len(self.questions)) * 100
-        result_window = tk.Toplevel(self.root)
+        result_window = tk.Toplevel(self.window)
         result_window.geometry("800x600+600+300")
         result_window.title("Quiz Results")
+        result_window.protocol("WM_DELETE_WINDOW", lambda: self.close_program(result_window))
 
         result_label = tk.Label(result_window, text=f"Your score: {self.score}/{len(self.questions)}\nPercentage: {percent_score:.2f}%", font=("Arial", 16))
         result_label.pack(pady=10)
@@ -171,7 +189,7 @@ class QuizApp:
 
         for statement, user_answer, correct_answer in self.answers:
             text_area.insert(tk.END, f"Question: {statement}\n")
-            if user_answer == correct_answer:
+            if user_answer.lower() == correct_answer.lower():
                 text_area.insert(tk.END, f"Your Answer: {user_answer}\n", 'correct')
             else:
                 text_area.insert(tk.END, f"Your Answer: {user_answer}\n", 'incorrect')
@@ -199,8 +217,8 @@ class QuizApp:
 
     def save_correct(self):
         file_path = 'quiz/correct_questions.xlsx'
-        new_correct_questions = [(ans[0], ans[2]) for ans in self.answers if ans[1] == ans[2]]
-        df_new_correct = pd.DataFrame(new_correct_questions, columns=['Statement', 'Correct Answer']).drop_duplicates(subset='Statement')
+        new_correct_questions = [(ans[0], ans[2]) for ans in self.answers if ans[1].lower() == ans[2].lower()]
+        df_new_correct = pd.DataFrame(new_correct_questions, columns=['Statement', 'True/False']).drop_duplicates(subset='Statement')
         
         if os.path.exists(file_path):
             df_existing_correct = pd.read_excel(file_path)
@@ -213,8 +231,8 @@ class QuizApp:
 
     def save_incorrect(self):
         file_path = 'quiz/incorrect_questions.xlsx'
-        new_incorrect_questions = [(ans[0], ans[2]) for ans in self.answers if ans[1] != ans[2]]
-        df_new_incorrect = pd.DataFrame(new_incorrect_questions, columns=['Statement', 'Correct Answer']).drop_duplicates(subset='Statement')
+        new_incorrect_questions = [(ans[0], ans[2]) for ans in self.answers if ans[1].lower() != ans[2].lower()]
+        df_new_incorrect = pd.DataFrame(new_incorrect_questions, columns=['Statement', 'True/False']).drop_duplicates(subset='Statement')
         
         if os.path.exists(file_path):
             df_existing_incorrect = pd.read_excel(file_path)
@@ -227,41 +245,62 @@ class QuizApp:
 
     def close_program(self, window):
         window.destroy()
-        self.root.quit()
+        self.main_root.deiconify()
 
     def restart_quiz(self, window):
         window.destroy()
-        self.root.withdraw()
-        
-        choose_file_dialog = ChooseFileDialog(self.root)
-        self.root.wait_window(choose_file_dialog)
+        self.main_root.deiconify()
+        MainApp(self.main_root)
 
-        if choose_file_dialog.choice == 'original':
-            data_frame = load_excel('quiz/True_False_Statements.xlsx')
-        elif choose_file_dialog.choice == 'incorrect':
-            data_frame = load_excel('quiz/incorrect_questions.xlsx')
-        elif choose_file_dialog.choice == 'correct':
-            data_frame = load_excel('quiz/correct_questions.xlsx')
-        else:
-            self.close_program(self.root)
-            return
+class NumQuestionsDialog(tk.Toplevel):
+    def __init__(self, parent, max_questions, error_message=None):
+        super().__init__(parent)
+        self.parent = parent
+        self.max_questions = max_questions
+        self.value = None
+        self.geometry("400x200+780+400")
+        self.title("Number of Questions")
 
-        if data_frame is None or data_frame.empty:
-            CustomMessageBox(self.root, "Error", "The selected file contains no questions. Exiting.")
-            self.root.mainloop()
-            self.root.destroy()
-            return
+        label = tk.Label(self, text="How many questions would you like to answer?", font=("Arial", 12))
+        label.pack(pady=10)
+        label = tk.Label(self, text=f"Number of questions: {self.max_questions}", font=("Arial", 12))
+        label.pack(pady=10)
 
-        dialog = NumQuestionsDialog(self.root, len(data_frame))
-        self.root.wait_window(dialog)
+        self.entry = tk.Entry(self, font=("Arial", 12))
+        self.entry.pack(pady=5)
 
-        if dialog.value:
-            self.num_questions = dialog.value
-            self.df = data_frame
-            self.root.deiconify()  # Show the main root window
-            self.reset_quiz()
-        else:
-            self.close_program(self.root)
+        self.error_label = tk.Label(self, text="", font=("Arial", 12), fg="red")
+        self.error_label.pack(pady=5)
+
+        button_frame = tk.Frame(self)
+        button_frame.pack(pady=10)
+
+        ok_button = tk.Button(button_frame, text="OK", font=("Arial", 12), command=self.on_ok)
+        ok_button.pack(side="left", padx=5)
+
+        cancel_button = tk.Button(button_frame, text="Cancel", font=("Arial", 12), command=self.on_cancel)
+        cancel_button.pack(side="right", padx=5)
+
+        if error_message:
+            self.show_error(error_message)
+
+    def on_ok(self):
+        try:
+            value = int(self.entry.get())
+            if 1 <= value <= self.max_questions:
+                self.value = value
+                self.destroy()
+            else:
+                self.show_error(f"Please enter a number between 1 and {self.max_questions}.")
+        except ValueError:
+            self.show_error("Please enter a valid number.")
+
+    def on_cancel(self):
+        self.value = None
+        self.destroy()
+
+    def show_error(self, message):
+        self.error_label.config(text=message)
 
 class CustomMessageBox(tk.Toplevel):
     def __init__(self, parent, title, message, correct=None):
@@ -288,21 +327,5 @@ class CustomMessageBox(tk.Toplevel):
 
 if __name__ == "__main__":
     root = tk.Tk()
-    root.withdraw()  # Hide the main root window
-
-    if df.empty:
-        CustomMessageBox(root, "Error", "The original file contains no questions. Exiting.")
-        root.mainloop()
-        root.destroy()
-    else:
-        # Create and show the custom dialog
-        dialog = NumQuestionsDialog(root, len(df))
-        root.wait_window(dialog)
-
-        if dialog.value:
-            root.deiconify()  # Show the main root window
-            app = QuizApp(root, dialog.value, df)
-            root.mainloop()
-            root.destroy()
-        else:
-            root.quit()
+    app = MainApp(root)
+    root.mainloop()
