@@ -5,21 +5,33 @@ import os
 
 
 def load_excel(file_path):
-    """Load an Excel file containing True/False questions and return a DataFrame."""
+    """Load an Excel file and return a DataFrame with additional column to identify question type."""
     try:
         df = pd.read_excel(file_path)
         if df.empty:
             raise ValueError("The selected file contains no questions.")
-        if "Statement" not in df.columns or "True/False" not in df.columns:
-            raise ValueError("The selected file does not have the required columns.")
-        # Ensure the True/False column contains strings "True" and "False" or their Hungarian equivalents
-        df["True/False"] = df["True/False"].astype(str).str.strip().str.capitalize()
-        if not df["True/False"].isin(["True", "False", "Igaz", "Hamis"]).all():
-            raise ValueError(
-                "The 'True/False' column must contain only 'True', 'False', 'Igaz', or 'Hamis' values."
+
+        # Check for required columns and append a 'Question Type' column based on available data
+        if "True/False" in df.columns:
+            df["True/False"] = df["True/False"].astype(str).str.strip().str.capitalize()
+            # Replace Hungarian values with English equivalents
+            df["True/False"] = df["True/False"].replace(
+                {"Igaz": "True", "Hamis": "False"}
             )
-        df["True/False"] = df["True/False"].replace({"Igaz": "True", "Hamis": "False"})
-        return df
+
+        df["Question Type"] = None
+
+        if "Statements" in df.columns and "True/False" in df.columns:
+            df.loc[df["True/False"].notna(), "Question Type"] = "True/False"
+        if "Sentences" in df.columns and "Words" in df.columns:
+            df.loc[df["Words"].notna(), "Question Type"] = "Fill-in-the-blank"
+
+        if df["Question Type"].isna().all():
+            raise ValueError(
+                "The file must have either True/False or Fill-in-the-blank questions with proper columns."
+            )
+
+        return df.dropna(subset=["Question Type"])
     except Exception as e:
         return str(e)
 
@@ -30,16 +42,16 @@ class MainApp:
 
     def __init__(self, root):
         self.root = root
-        self.df = pd.DataFrame(columns=["Statement", "True/False"])
+        self.df = pd.DataFrame(columns=["Statements", "True/False"])
         self.num_questions = 0
         self.error_message = None
         self.choice = None
         self.data_frame = None
 
-        self.root.title("True or False Quiz")
+        self.root.title("Quiz Application")
         self.root.geometry("700x500+650+300")
 
-        self.root.protocol("WM_DELETE_WINDOW", lambda: self.close_program(self.root))
+        self.root.protocol("WM_DELETE_WINDOW", lambda: self.close_program())
 
         self.show_file_dialog()
 
@@ -126,7 +138,14 @@ class MainApp:
                 self.root.destroy()
                 return
 
-            dialog = NumQuestionsDialog(self.root, len(data_frame))
+            lenght_of_sentences, length_of_statements, max_lenght = 0, 0, 0
+            if "Sentences" in data_frame.columns:
+                lenght_of_sentences = len(data_frame["Sentences"])
+            if "Statements" in data_frame.columns:
+                length_of_statements = len(data_frame["Statements"])
+            max_lenght = length_of_statements + lenght_of_sentences
+
+            dialog = NumQuestionsDialog(self.root, max_lenght)
             self.root.wait_window(dialog)
 
             if dialog.value:
@@ -150,7 +169,7 @@ class QuizApp:
     def __init__(self, window, num_questions, data_frame, main_root):
         self.window = window
         self.df = data_frame
-        self.window.title("True or False Quiz")
+        self.window.title("Quiz Application")
         self.window.geometry("700x500+650+300")
         self.num_questions = num_questions
         self.main_root = main_root
@@ -186,6 +205,7 @@ class QuizApp:
             command=lambda: self.check_answer("True"),
         )
         self.true_button.pack(side="left", padx=20)
+        self.true_button.bind("<Return>", lambda event: self.check_answer("True"))
 
         self.false_button = tk.Button(
             self.button_frame,
@@ -195,32 +215,95 @@ class QuizApp:
             command=lambda: self.check_answer("False"),
         )
         self.false_button.pack(side="right", padx=20)
+        self.false_button.bind("<Return>", lambda event: self.check_answer("False"))
+
+        self.fill_in_entry = tk.Entry(self.window, font=("Arial", 12), width=30)
+        self.fill_in_entry.pack(pady=20)
+        self.fill_in_entry.pack_forget()
+
+        self.submit_button = tk.Button(
+            self.window,
+            text="Submit",
+            font=("Arial", 12),
+            command=self.submit_fill_in_answer,
+        )
+        self.submit_button.pack(pady=10)
+        self.submit_button.pack_forget()
+        self.submit_button.bind("<Return>", self.submit_fill_in_answer)
 
         self.confirmation_label = tk.Label(self.window, text="", font=("Arial", 12))
         self.confirmation_label.pack(pady=10)
 
     def show_question(self):
-        """Display the current question."""
+        """Display the current question based on its type."""
         if self.current_question < len(self.questions):
             question = self.questions.iloc[self.current_question]
-            self.statement_label.config(text=question["Statement"])
+            question_type = question["Question Type"]
+            if question_type == "True/False":
+                self.statement_label.config(text=question["Statements"])
+                self.true_button.pack(side="left", padx=20)
+                self.false_button.pack(side="right", padx=20)
+                self.fill_in_entry.pack_forget()
+                self.submit_button.pack_forget()
+                self.fill_in_entry.unbind("<Return>")
+            elif question_type == "Fill-in-the-blank":
+                self.statement_label.config(text=question["Sentences"])
+                self.true_button.pack_forget()
+                self.false_button.pack_forget()
+                self.fill_in_entry.pack(pady=20)
+                self.submit_button.pack(pady=10)
+                self.fill_in_entry.bind("<Return>", self.submit_fill_in_answer)
         else:
             self.show_result()
 
-    def check_answer(self, answer):
-        """Check the answer and display the result."""
+    def submit_fill_in_answer(self, event=None):
+        """Submit the answer for fill-in-the-blank questions."""
+        self.check_answer()
+
+    def check_answer(self, answer=None):
+        """Validate the answer based on question type."""
         question = self.questions.iloc[self.current_question]
-        correct_answer = question["True/False"]
-        self.answers.append((question["Statement"], answer, correct_answer))
-        if answer.lower() == correct_answer.lower():
-            self.score += 1
-            self.show_info("Correct!", "Your answer is correct!", correct=True)
-        else:
-            self.show_info(
-                "Incorrect",
-                f"Wrong answer! The correct answer is [{correct_answer}]",
-                correct=False,
+        question_type = question["Question Type"]
+        if question_type == "True/False":
+            correct_answer = question["True/False"]
+            user_answer = answer
+        elif question_type == "Fill-in-the-blank":
+            correct_answer = question["Words"].strip().lower()
+            user_answer = self.fill_in_entry.get().strip().lower()
+            self.fill_in_entry.delete(0, tk.END)  # Reset text input after submission
+
+        self.answers.append(
+            (
+                (
+                    question["Statements"]
+                    if question_type == "True/False"
+                    else question["Sentences"]
+                ),
+                user_answer,
+                correct_answer,
             )
+        )
+        if "vagy" in correct_answer:
+            correct_answer = correct_answer.split(" vagy ")
+            if user_answer in correct_answer:
+                self.score += 1
+                self.show_info("Correct!", "Your answer is correct!", correct=True)
+            else:
+                self.show_info(
+                    "Incorrect",
+                    f"Wrong answer! The correct answer is [{correct_answer}]",
+                    correct=False,
+                )
+        else:
+            if user_answer == correct_answer:
+                self.score += 1
+                self.show_info("Correct!", "Your answer is correct!", correct=True)
+            else:
+                self.show_info(
+                    "Incorrect",
+                    f"Wrong answer! The correct answer is [{correct_answer}]",
+                    correct=False,
+                )
 
         self.current_question += 1
         if self.current_question < len(self.questions):
@@ -231,6 +314,7 @@ class QuizApp:
     def show_info(self, title, message, correct):
         """Display an information dialog."""
         info_dialog = CustomMessageBox(self.window, title, message, correct)
+        info_dialog.geometry("400x200+850+400")
         self.window.wait_window(info_dialog)
 
     def show_result(self):
@@ -279,6 +363,7 @@ class QuizApp:
             command=self.save_correct,
         )
         save_correct_button.pack(side="left", padx=5)
+        save_correct_button.bind("<Return>", self.save_correct)
 
         save_incorrect_button = tk.Button(
             button_frame,
@@ -287,6 +372,7 @@ class QuizApp:
             command=self.save_incorrect,
         )
         save_incorrect_button.pack(side="left", padx=5)
+        save_incorrect_button.bind("<Return>", self.save_incorrect)
 
         close_button = tk.Button(
             button_frame,
@@ -295,6 +381,7 @@ class QuizApp:
             command=lambda: self.close_program(result_window),
         )
         close_button.pack(side="left", padx=5)
+        close_button.bind("<Return>", lambda event: self.close_program(result_window))
 
         restart_button = tk.Button(
             button_frame,
@@ -303,58 +390,94 @@ class QuizApp:
             command=lambda: self.restart_quiz(result_window),
         )
         restart_button.pack(side="right", padx=5)
+        restart_button.bind("<Return>", lambda event: self.restart_quiz(result_window))
 
         self.confirmation_label_result = tk.Label(
             result_window, text="", font=("Arial", 12)
         )
         self.confirmation_label_result.pack(pady=10)
 
-    def save_correct(self):
+    def save_correct(self, event=None):
         """Save the correct questions to an Excel file."""
         file_path = "quiz/correct_questions.xlsx"
-        new_correct_questions = [
-            (ans[0], ans[2]) for ans in self.answers if ans[1].lower() == ans[2].lower()
+
+        correct_true_false = [
+            (ans[0], ans[2])
+            for ans in self.answers
+            if ans[1].lower() == ans[2].lower()
+            and isinstance(ans[0], str)
+            and isinstance(ans[2], str)
+            and ("True" in ans[2] or "False" in ans[2])
         ]
-        df_new_correct = pd.DataFrame(
-            new_correct_questions, columns=["Statement", "True/False"]
-        ).drop_duplicates(subset="Statement")
+        correct_fill_in = [
+            (ans[0], ans[2])
+            for ans in self.answers
+            if ans[1].lower() == ans[2].lower()
+            and isinstance(ans[0], str)
+            and isinstance(ans[2], str)
+            and ("True" not in ans[2] and "False" not in ans[2])
+            and ans[0] not in correct_true_false
+        ]
 
-        if os.path.exists(file_path):
-            df_existing_correct = pd.read_excel(file_path)
-            df_combined = (
-                pd.concat([df_existing_correct, df_new_correct])
-                .drop_duplicates(subset="Statement")
-                .reset_index(drop=True)
-            )
-        else:
-            df_combined = df_new_correct
+        df_new_correct_tf = pd.DataFrame(
+            correct_true_false, columns=["Statements", "True/False"]
+        ).drop_duplicates(subset="Statements")
+        df_new_correct_fib = pd.DataFrame(
+            correct_fill_in, columns=["Sentences", "Words"]
+        ).drop_duplicates(subset="Sentences")
 
-        df_combined.to_excel(file_path, index=False, engine="openpyxl")
+        with pd.ExcelWriter(file_path, engine="openpyxl") as writer:
+            if not df_new_correct_tf.empty:
+                df_new_correct_tf.to_excel(writer, index=False, sheet_name="True_False")
+            if not df_new_correct_fib.empty:
+                df_new_correct_fib.to_excel(
+                    writer, index=False, sheet_name="Fill_in_the_blank", startcol=2
+                )
+
         self.confirmation_label_result.config(
             text="Correct questions have been saved to correct_questions.xlsx"
         )
 
-    def save_incorrect(self):
+    def save_incorrect(self, event=None):
         """Save the incorrect questions to an Excel file."""
         file_path = "quiz/incorrect_questions.xlsx"
-        new_incorrect_questions = [
-            (ans[0], ans[2]) for ans in self.answers if ans[1].lower() != ans[2].lower()
+
+        # Separate incorrect questions based on type
+        incorrect_true_false = [
+            (ans[0], ans[2])
+            for ans in self.answers
+            if ans[1].lower() != ans[2].lower()
+            and isinstance(ans[0], str)
+            and isinstance(ans[2], str)
+            and ("True" in ans[2] or "False" in ans[2])
         ]
-        df_new_incorrect = pd.DataFrame(
-            new_incorrect_questions, columns=["Statement", "True/False"]
-        ).drop_duplicates(subset="Statement")
+        incorrect_fill_in = [
+            (ans[0], ans[2])
+            for ans in self.answers
+            if ans[1].lower() != ans[2].lower()
+            and isinstance(ans[0], str)
+            and isinstance(ans[2], str)
+            and ("True" not in ans[2] and "False" not in ans[2])
+            and ans[0] not in incorrect_true_false
+        ]
 
-        if os.path.exists(file_path):
-            df_existing_incorrect = pd.read_excel(file_path)
-            df_combined = (
-                pd.concat([df_existing_incorrect, df_new_incorrect])
-                .drop_duplicates(subset="Statement")
-                .reset_index(drop=True)
-            )
-        else:
-            df_combined = df_new_incorrect
+        df_new_incorrect_tf = pd.DataFrame(
+            incorrect_true_false, columns=["Statements", "True/False"]
+        ).drop_duplicates(subset="Statements")
+        df_new_incorrect_fib = pd.DataFrame(
+            incorrect_fill_in, columns=["Sentences", "Words"]
+        ).drop_duplicates(subset="Sentences")
 
-        df_combined.to_excel(file_path, index=False, engine="openpyxl")
+        with pd.ExcelWriter(file_path, engine="openpyxl") as writer:
+            if not df_new_incorrect_tf.empty:
+                df_new_incorrect_tf.to_excel(
+                    writer, index=False, sheet_name="True_False"
+                )
+            if not df_new_incorrect_fib.empty:
+                df_new_incorrect_fib.to_excel(
+                    writer, index=False, sheet_name="Fill_in_the_blank", startcol=2
+                )
+
         self.confirmation_label_result.config(
             text="Incorrect questions have been saved to incorrect_questions.xlsx"
         )
@@ -369,6 +492,112 @@ class QuizApp:
         window.destroy()
         self.main_root.deiconify()
         MainApp(self.main_root)
+
+
+# The rest of your class definitions remain the same
+
+
+class NumQuestionsDialog(tk.Toplevel):
+    """Dialog window to choose the number of questions for the quiz."""
+
+    def __init__(self, parent, max_questions, error_message=None):
+        super().__init__(parent)
+        self.parent = parent
+        self.max_questions = max_questions
+        self.value = None
+        self.geometry("400x200+780+400")
+        self.title("Number of Questions")
+
+        label = tk.Label(
+            self,
+            text="How many questions would you like to answer?",
+            font=("Arial", 12),
+        )
+        label.pack(pady=10)
+        label = tk.Label(
+            self, text=f"Number of questions: {self.max_questions}", font=("Arial", 12)
+        )
+        label.pack(pady=10)
+
+        self.entry = tk.Entry(self, font=("Arial", 12))
+        self.entry.pack(pady=5)
+        self.entry.bind("<Return>", self.on_ok)  # Bind Enter key to OK button
+
+        self.error_label = tk.Label(self, text="", font=("Arial", 12), fg="red")
+        self.error_label.pack(pady=5)
+
+        button_frame = tk.Frame(self)
+        button_frame.pack(pady=10)
+
+        ok_button = tk.Button(
+            button_frame, text="OK", font=("Arial", 12), command=self.on_ok
+        )
+        ok_button.pack(side="left", padx=5)
+
+        cancel_button = tk.Button(
+            button_frame, text="Cancel", font=("Arial", 12), command=self.on_cancel
+        )
+        cancel_button.pack(side="right", padx=5)
+
+        if error_message:
+            self.show_error(error_message)
+
+    def on_ok(self, event=None):
+        """Handle the OK button click."""
+        try:
+            value = int(self.entry.get())
+            if 1 <= value <= self.max_questions:
+                self.value = value
+                self.destroy()
+            else:
+                self.show_error(
+                    f"Please enter a number between 1 and {self.max_questions}."
+                )
+        except ValueError:
+            self.show_error("Please enter a valid number.")
+
+    def on_cancel(self):
+        """Handle the Cancel button click."""
+        self.value = None
+        self.destroy()
+
+    def show_error(self, message):
+        """Display an error message on the screen."""
+        self.error_label.config(text=message)
+
+
+class CustomMessageBox(tk.Toplevel):
+    """Custom message box to display messages."""
+
+    def __init__(self, parent, title, message, correct=None):
+        super().__init__(parent)
+        self.geometry("400x200+850+400")
+        self.title(title)
+        if correct is not None:
+            if correct:
+                bg_color = "green"
+            else:
+                bg_color = "red"
+        else:
+            bg_color = None
+        self.config(bg=bg_color)
+
+        label = tk.Label(self, text=message, font=("Arial", 12), bg=bg_color)
+        label.pack(pady=10)
+
+        button = tk.Button(self, text="OK", font=("Arial", 12), command=self.on_ok)
+        button.pack(pady=10)
+        button.bind("<Return>", self.on_ok)  # Bind Enter key to OK button
+
+    def on_ok(self, event=None):
+        """Handle the OK button click."""
+        self.destroy()
+
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = MainApp(root)
+    root.mainloop()
 
 
 class NumQuestionsDialog(tk.Toplevel):
