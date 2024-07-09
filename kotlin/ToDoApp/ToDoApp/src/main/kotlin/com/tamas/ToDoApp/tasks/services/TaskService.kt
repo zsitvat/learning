@@ -1,43 +1,52 @@
 package com.tamas.ToDoApp.tasks.services
 
-import com.tamas.ToDoApp.tasks.domain.TaskEntity
-import com.tamas.ToDoApp.tasks.dto.TaskDto
+import com.tamas.ToDoApp.tasks.TaskDtoRequest.TaskDtoRequest
+import com.tamas.ToDoApp.tasks.TaskDtoRequest.toEntity
+import com.tamas.ToDoApp.tasks.TaskDtoResponse.TaskDtoResponse
+import com.tamas.ToDoApp.tasks.TaskDtoResponse.toTaskDtoResponse
 import com.tamas.ToDoApp.tasks.repository.TaskRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
-import com.tamas.ToDoApp.tasks.domain.Status
-import com.tamas.ToDoApp.tasks.dto.toDto
-import com.tamas.ToDoApp.tasks.dto.toEntity
 
 @Service
-class TaskService(private val taskRepository: TaskRepository) {
+class TaskService(var taskRepository: TaskRepository) {
 
-    fun getTasks(): List<TaskDto> {
-        return taskRepository.findAll().map { it.toDto() }
-    }
-
-    fun getTaskById(id: Long): TaskDto {
-        val task = taskRepository.findById(id).orElseThrow { RuntimeException("Task not found") }
-        return task.toDto()
+    @Transactional
+    fun getTasks(): List<TaskDtoResponse> {
+        return taskRepository.findAll().map { it.toTaskDtoResponse() }
     }
 
     @Transactional
-    fun postTask(taskDto: TaskDto) {
+    fun getTaskById(id: Long): TaskDtoResponse? {
+        val task = taskRepository.findById(id).orElseThrow { RuntimeException("Task not found") }
+        return task.toTaskDtoResponse()
+    }
+
+    @Transactional
+    fun createTask(taskDto: TaskDtoRequest): TaskDtoResponse {
         val task = taskDto.toEntity()
         taskRepository.save(task)
+        return task.toTaskDtoResponse()
     }
 
     @Transactional
-    fun updateTask(id: Long, taskDto: TaskDto) {
-        val taskToUpdate = taskRepository.findById(id).orElseThrow { RuntimeException("Task not found") }
+    fun updateTask(taskDto: TaskDtoRequest): Boolean {
+        val taskToUpdate = taskRepository.findById(taskDto.id).orElseThrow { RuntimeException("Task not found") }
         taskToUpdate.apply {
             name = taskDto.name
             description = taskDto.description
             status = taskDto.status
             deadline = taskDto.deadline
             userId = taskDto.userId
-            updatedAt = taskDto.updatedAt
+            updatedAt = taskDto.updatedAt.toString()
         }
         taskRepository.save(taskToUpdate)
+
+        return true
+    }
+
+    @Transactional
+    fun deleteTask(id: Long) {
+        taskRepository.deleteById(id)
     }
 }
